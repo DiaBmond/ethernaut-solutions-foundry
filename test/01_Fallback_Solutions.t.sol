@@ -27,9 +27,7 @@ contract Fallback_Solutions is Test {
         fallbackContract.contribute{value: 0.0001 ether}();
 
         // Step 2: Trigger receive()
-        (bool success, ) = address(fallbackContract).call{value: 0.0001 ether}(
-            ""
-        );
+        (bool success,) = address(fallbackContract).call{value: 0.0001 ether}("");
         require(success, "Transaction failed");
 
         // Step 3: Drain
