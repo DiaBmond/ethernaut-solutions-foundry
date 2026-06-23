@@ -20,10 +20,6 @@ contract Fallback_Solutions is Test {
         hacker = makeAddr("hacker");
         vm.prank(hacker);
         falloutContract.Fal1out();
-        assertEq(
-            falloutContract.owner(),
-            hacker,
-            "Hack failed: Hacker is not the owner"
-        );
+        assertEq(falloutContract.owner(), hacker, "Hack failed: Hacker is not the owner");
     }
 }
