@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
-import {Fallback} from "../src/01_Fallback.sol";
+import {Fallback} from "../src/01_Fallback/Fallback.sol";
 
 contract Fallback_Solutions is Test {
     // Changed the name from targetContract to fallbackContract
